@@ -1,0 +1,93 @@
+version: "3.9"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: forensic_mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE:-bea_cukai_forensic}
+      MYSQL_USER: ${DB_USERNAME:-forensic_user}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-ubah_password_ini}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-ubah_root_password_ini}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${DB_ROOT_PASSWORD:-ubah_root_password_ini}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      - forensic_net
+
+  redis:
+    image: redis:7-alpine
+    container_name: forensic_redis
+    restart: unless-stopped
+    networks:
+      - forensic_net
+
+  python-service:
+    build:
+      context: ./python-service
+    container_name: forensic_python_service
+    restart: unless-stopped
+    environment:
+      API_SECRET_KEY: ${FORENSIC_SERVICE_KEY:-ubah_dengan_random_string_panjang_dan_rahasia}
+      ALLOWED_ORIGINS: '["http://localhost", "http://localhost:8080", "http://laravel-app"]'
+      MAX_UPLOAD_SIZE: "52428800"
+    volumes:
+      - forensic_uploads:/app/app/storage/uploads
+      - forensic_reports:/app/app/storage/reports
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health')"]
+      interval: 15s
+      timeout: 5s
+      retries: 10
+    networks:
+      - forensic_net
+
+  laravel-app:
+    build:
+      context: ./laravel-app
+    container_name: forensic_laravel_app
+    restart: unless-stopped
+    depends_on:
+      mysql:
+        condition: service_healthy
+      python-service:
+        condition: service_healthy
+    environment:
+      APP_NAME: "Bea Cukai Forensic Dashboard"
+      APP_ENV: production
+      APP_DEBUG: "false"
+      APP_URL: ${APP_URL:-http://localhost:8080}
+      DB_CONNECTION: mysql
+      DB_HOST: mysql
+      DB_PORT: 3306
+      DB_DATABASE: ${DB_DATABASE:-bea_cukai_forensic}
+      DB_USERNAME: ${DB_USERNAME:-forensic_user}
+      DB_PASSWORD: ${DB_PASSWORD:-ubah_password_ini}
+      SESSION_DRIVER: database
+      QUEUE_CONNECTION: database
+      CACHE_STORE: database
+      REDIS_HOST: redis
+      FORENSIC_SERVICE_URL: http://python-service:8000
+      FORENSIC_SERVICE_KEY: ${FORENSIC_SERVICE_KEY:-ubah_dengan_random_string_panjang_dan_rahasia}
+      FORENSIC_SERVICE_TIMEOUT: 120
+    ports:
+      - "${APP_PORT:-8080}:80"
+    volumes:
+      - laravel_storage:/var/www/html/storage/app
+    networks:
+      - forensic_net
+
+networks:
+  forensic_net:
+    driver: bridge
+
+volumes:
+  mysql_data:
+  forensic_uploads:
+  forensic_reports:
+  laravel_storage:
